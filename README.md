@@ -1,2 +1,8 @@
-# Machine_Learning_in_R
-Machine Learning methods in R
+# Machine Learning in R
+
+This repo contains various machine learning methods implementation in R.
+* Classification
+* Regression
+* Clustering
+* Feature selection
+* ...
