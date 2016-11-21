@@ -1,0 +1,259 @@
+---
+title: "Calssification in R"
+output:
+#  github_document
+  html_document: default
+  keep_md: true
+---
+# Introduction
+Machine learning is the fascinating field of building models to learn from data and then to predict unseen data which has shown more and more promising results.
+
+Classification is the most widely used machine learning technique. The basic idea is to build a classifier which learns from training observations with discrete classes and then is applied to predict the outcome for new observations. There most common example we have seen everyday is probably the spam or junk mail filter in the email system which is telling you whether the email is a junk mail or not.
+
+### Load the libraries
+```{r}
+library(mlbench)              # datasets
+library(class)                # knn
+library(caret)
+library(e1071)                # svm
+library(MASS)                 # lda
+```
+### Load the dataset
+```{r}
+data("Ionosphere")
+str(Ionosphere)
+summary(Ionosphere)
+apply(Ionosphere, 2, var)
+```
+## Training and test set split
+We can't use the train error to measure the performance of the model on the unseen data. One approach is called train/test split which will hold out a subset of data as the test set to estimate how well the generalization of the model. Another more robust approach is cross-validation which will divide the data set into `k` fold and each time it will hold out one fold for test and train withe rest. It gives you multiple estimate of out-of-sample errors.
+
+It is important to shuffle the samples before the split. Generally we can split training and test set into 7/3.
+```{r}
+set.seed(1)
+df <- Ionosphere[, -c(1, 2)]
+ix_shuffled <- sample(1:nrow(df), size=nrow(df), replace=F)
+ix_train <- ix_shuffled[1:round(0.7 * nrow(df))]
+df_train <- df[ix_train, ]
+df_test <- df[-ix_train, ]
+```
+Alternatively, we can utilize the createDataPartition function from caret library.
+```{r}
+ixTrain <- createDataPartition(df$Class, p=0.7)
+```
+
+## SVM (Support Vector Machines) model
+The basic idea of SVM model is to find the hyperplane that can seperate the classes in the feature space while maximizing the margain (or gap) between classes. If the feature space can't be separated by linear boundary, we can enlarge the feature space through kernel tricks (namely polynomial kernel, radial kernel, etc.) to make it linear separable.
+SVM model is implemented in the library e1071.
+```{r}
+library(e1071)
+```
+
+### SVM model with linear kernel
+```{r}
+svm_model1 <- svm(Class ~ ., data=df_train, kernel="linear", type="C-classification")
+svm_pred1 <- predict(svm_model1, df_test)
+```
+
+### Model performance metrics
+We define a function to obtain various performance metrics for the classification model. 
+* Accuracy
+* Precision
+* Recall
+* F1 score
+```{r}
+classification_metrics <- function(truth, pred, pos_label=NULL) {
+  if (length(unique(truth)) == 2 & is.null(pos_label)) {
+    stop("pos_label must not NULL")
+  }
+  else if (length(unique(truth)) == 2) {
+    conf <- table(truth, pred)
+    acc <- sum(diag(conf)) / sum(conf)
+    pos_ix <- which(colnames(conf) == pos_label)
+    TP <- conf[pos_ix, pos_ix]
+    TN <- conf[-pos_ix, -pos_ix]
+    FP <- conf[-pos_ix, pos_ix]
+    FN <- conf[pos_ix, -pos_ix]
+    precision <- TP / (TP + FP)
+    recall <- TP / (TP + FN)
+    F1_score <- 2*TP / (2*TP + FP + FN)
+    metrics <- list(accuracy=acc, precision=precision, recall=recall, F1_score=F1_score, TP=TP, TN=TN, FP=FP, FN=FN)
+  }
+}
+```
+
+```{r}
+svm_metrics1 <- classification_metrics(df_test$Class, svm_pred1, pos_label="good")
+cat(c("Accuracy:", round(svm_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(svm_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(svm_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(svm_metrics1$F1_score, digits = 3)))
+```
+### SVM model with polynomial kernel
+```{r}
+svm_model2 <- svm(Class ~ ., data=df_train, kernel="polynomial", type="C-classification")
+svm_pred2 <- predict(svm_model2, df_test)
+```
+### Model performance metrics
+```{r}
+svm_metrics2 <- classification_metrics(df_test$Class, svm_pred2, pos_label="good")
+cat(c("Accuracy:", round(svm_metrics2$accuracy, digits = 3)))
+cat(c("Precision:", round(svm_metrics2$precision, digits = 3)))
+cat(c("Recall:", round(svm_metrics2$recall, digits = 3)))
+cat(c("F1 score:", round(svm_metrics2$F1_score, digits = 3)))
+```
+### SVM model with RBF kernel
+```{r}
+svm_model3 <- svm(Class ~ ., data=df_train, kernel="radial", type="C-classification")
+svm_pred3 <- predict(svm_model3, df_test)
+```
+### Model performance metrics
+```{r}
+svm_metrics3 <- classification_metrics(df_test$Class, svm_pred3, pos_label="good")
+cat(c("Accuracy:", round(svm_metrics3$accuracy, digits = 3)))
+cat(c("Precision:", round(svm_metrics3$precision, digits = 3)))
+cat(c("Recall:", round(svm_metrics3$recall, digits = 3)))
+cat(c("F1 score:", round(svm_metrics3$F1_score, digits = 3)))
+```
+## kNN (k-Nearest Neighbours) model
+kNN is an instance-based learning method, also knows as non-parametric lazy learning algorithm. It is because unlike most of the algorithms which are required to learn the weights (parameters) of the model during training process, kNN just stores the training samples and make prediction for unseen data by comparing them to the training set with a given distance metric.
+```{r}
+knn_pred1 <- knn(train=df_train[, -33], test=df_test[, -33], cl=df_train$Class, k=3)
+```
+### Model performance metrics
+```{r}
+knn_metrics1 <- classification_metrics(df_test$Class, knn_pred1, pos_label="good")
+cat(c("Accuracy:", round(knn_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(knn_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(knn_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(knn_metrics1$F1_score, digits = 3)))
+```
+## Logistic Regression model
+```{r}
+lr_model1 <- glm(Class ~ ., data=df_train, family=binomial(link="logit"))
+summary(lr_model1)
+lr_pred1 <- predict(lr_model1, df_test, type="response")
+lr_pred1 <- ifelse(lr_pred1 > 0.5, "good", "bad")
+```
+### Model performance metrics
+```{r}
+lr_metrics1 <- classification_metrics(df_test$Class, lr_pred1, pos_label="good")
+cat(c("Accuracy:", round(lr_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(lr_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(lr_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(lr_metrics1$F1_score, digits = 3)))
+```
+## LDA (Linear Discriminant Analysis) model
+```{r}
+lda_model1 <- lda(Class ~ ., data=df_train)
+lda_pred1 <- predict(lda_model1, df_test, type="response")$class
+```
+### Model performance metrics
+```{r}
+lda_metrics1 <- classification_metrics(df_test$Class, lda_pred1, pos_label="good")
+cat(c("Accuracy:", round(lda_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(lda_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(lda_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(lda_metrics1$F1_score, digits = 3)))
+```
+## Decision Tree model
+```{r}
+library(rpart)
+library(rattle)
+library(RColorBrewer)
+
+dt_model1 <- rpart(Class ~ ., data=df_train)
+fancyRpartPlot(dt_model1)
+dt_pred1 <- predict(dt_model1, df_test, type="class")
+```
+### Model performance metrics
+```{r}
+dt_metrics1 <- classification_metrics(df_test$Class, dt_pred1, pos_label="good")
+cat(c("Accuracy:", round(dt_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(dt_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(dt_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(dt_metrics1$F1_score, digits = 3)))
+```
+## XGBoost model
+```{r}
+library(xgboost)
+```
+XGBoost only works with numeric vectors, so we need to convert the Class into numeric first.
+```{r}
+df_train_label <- df_train$Class == "good"
+df_train_label
+```
+```{r}
+xgb_model1 <- xgboost(data=as.matrix(df_train[, -33]), label=df_train_label, nrounds=20, objective="binary:logistic", eta=0.3, max_depth=6)
+xgb_pred1 <- predict(xgb_model1, as.matrix(df_test[, -33]))
+xgb_pred1 <- ifelse(xgb_pred1 > 0.5, "good", "bad")
+```
+### Model performance metrics
+```{r}
+xgb_metrics1 <- classification_metrics(df_test$Class, xgb_pred1, pos_label="good")
+cat(c("Accuracy:", round(xgb_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(xgb_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(xgb_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(xgb_metrics1$F1_score, digits = 3)))
+```
+### Feature importance
+```{r}
+importance_matrix <- xgb.importance(feature_names=colnames(df_train[1, -33]), model=xgb_model1)
+print(importance_matrix)
+xgb.plot.importance(importance_matrix)
+```
+## Random Forest
+```{r}
+library(randomForest)
+rf_model1 <- randomForest(Class ~ ., data=df_train)
+rf_pred1 <- predict(rf_model1, df_test)
+```
+### Model performance metrics
+```{r}
+rf_metrics1 <- classification_metrics(df_test$Class, rf_pred1, pos_label="good")
+cat(c("Accuracy:", round(rf_metrics1$accuracy, digits = 3)))
+cat(c("Precision:", round(rf_metrics1$precision, digits = 3)))
+cat(c("Recall:", round(rf_metrics1$recall, digits = 3)))
+cat(c("F1 score:", round(rf_metrics1$F1_score, digits = 3)))
+```
+# ROC (Receiver Operator Characteristic) Curve
+ROC is a very powerful performance measurement for binary classification. Good classifiers have big area under the curve (AUC).
+```{r}
+library(ROCR)
+roc_plot <- function(truth, pred, ...) {
+  roc_pred <- prediction(pred, truth)
+  roc_perf <- performance(roc_pred, "tpr", "fpr")
+  ROCR::plot(roc_perf, ...)
+}
+```
+## Compare the ROC for different classifiers
+```{r}
+svm_fit1 <- svm(Class ~ ., data=df_train, kerenl="radial", type="C-classification", probability=TRUE)
+svm_pred_prob <- predict(svm_fit1, df_test, probability=T)
+svm_pred_prob <- attr(svm_pred_prob, "probabilities")[, "good"]
+
+knn_pred_prob <- knn(train=df_train[, -33], test=df_test[, -33], cl=df_train$Class, k=3, prob=T)
+knn_pred_prob <- attr(knn_pred_prob, "prob")
+
+lda_fit <- lda(Class ~ ., data=df_train)
+lda_pred_prob <- predict(lda_fit, df_test)$posterior[, "good"]
+
+lr_fit <- glm(Class ~ ., data=df_train, family=binomial(link="logit"))
+lr_pred_prob <- predict(lr_fit, df_test, type="response")  
+
+dt_fit <- rpart(Class ~ ., data=df_train)
+dt_pred_prob <- predict(dt_fit, df_test, type="prob")[, "good"]
+
+rf_fit <- randomForest(Class ~ ., data=df_train)
+rf_pred_prob <- predict(rf_fit, df_test, type="prob")[, "good"]
+
+
+roc_plot(df_test$Class, svm_pred_prob, col="red", lwd=2)
+roc_plot(df_test$Class, knn_pred_prob, col="blue", lwd=2, add=T)
+roc_plot(df_test$Class, lda_pred_prob, col="green", lwd=2, add=T)
+roc_plot(df_test$Class, lr_pred_prob, col="purple", lwd=2, add=T)
+roc_plot(df_test$Class, dt_pred_prob, col="black", lwd=2, add=T)
+roc_plot(df_test$Class, rf_pred_prob, col="orange", lwd=2, add=T)
+legend("bottomright", lty=1, lwd=1, legend=c("SVM", "kNN", "LDA", "Logistic Regression", "LDA", "Dicision Tree", "Random Forest"), col=c("red", "blue", "green", "purple", "black", "orange"))
+```
+
