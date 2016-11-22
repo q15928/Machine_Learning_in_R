@@ -1,0 +1,33 @@
+---
+title: "Regression in R"
+output: html_notebook
+#  kee_md: TRUE
+
+---
+
+# Introduction
+Regression is one kind of supervised machine learning which the target value is continuous. 
+```{r}
+library(mlbench)
+```
+### Load Dataset
+We will use Boston house dataset.
+```{r}
+data("BostonHousing")
+str(BostonHousing)
+summary(BostonHousing)
+```
+## Build a linear regression model
+```{r}
+model <- lm(medv ~ ., data=BostonHousing)
+summary(model)
+```
+### Check the residual against the fitted value
+```{r}
+plot(model$fitted.values, model$residuals, col="red")
+```
+```{r}
+qqnorm(model$residuals)
+```
+
+
