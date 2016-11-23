@@ -1,12 +1,12 @@
 ---
 title: "Regression in R"
-output: html_notebook
-#  kee_md: TRUE
-
+output:
+  html_document: default
+  html_notebook: default
 ---
 
 # Introduction
-Regression is one kind of supervised machine learning which the target value is continuous. 
+Regression is one kind of supervised learning to predict the target based on the input features which the target value is continuous, such as stock price, sales figures, GDP, etc. 
 ```{r}
 library(mlbench)
 ```
@@ -16,12 +16,29 @@ We will use Boston house dataset.
 data("BostonHousing")
 str(BostonHousing)
 summary(BostonHousing)
+apply(BostonHousing, 2, var)
 ```
 ## Build a linear regression model
+The objective of linear regression is to find the weights (coefficients) that minimise the residual sum of square (RSS) of the linear equation. 
+$$ y = f(W, X) = w_{0} + w_{1}X_{1} + ... + w_{p}X_{p} $$
 ```{r}
 model <- lm(medv ~ ., data=BostonHousing)
 summary(model)
 ```
+### Performance evaluation - RMSE
+```{r}
+rmse <- sqrt(mean(model$residuals ^ 2))
+rmse
+```
+### Performance evaluation - R-squared
+R-squared interprets the percentage the model explains the target variance. The closer to 1, the better fit.
+```{r}
+SS_res <- sum((model$residuals) ^ 2)
+SS_tot <- sum((BostonHousing$medv - mean(BostonHousing$medv)) ^ 2)
+R_squared <- 1 - SS_res / SS_tot
+R_squared
+```
+
 ### Check the residual against the fitted value
 ```{r}
 plot(model$fitted.values, model$residuals, col="red")

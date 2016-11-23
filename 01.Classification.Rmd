@@ -3,7 +3,8 @@ title: "Calssification in R"
 output:
 #  github_document
   html_document: default
-  keep_md: true
+  html_notebook: default
+#  keep_md: true
 ---
 # Introduction
 Machine learning is the fascinating field of building models to learn from data and then to predict unseen data which has shown more and more promising results.
