@@ -1,0 +1,228 @@
+---
+title: "Credit Risk Modelling in R"
+output: 
+  html_document:
+    keep_md: TRUE
+---
+
+
+```{r}
+library(gmodels)
+library(rpart)
+library(rpart.plot)
+```
+## Data preparation
+### Load the data
+```{r}
+setwd("~/mds/git-repos/Machine_Learning_in_R/")
+loan_data <- readRDS("./loan_data_ch1.rds")
+```
+### Descriptive statistics 
+```{r}
+str(loan_data)
+summary(loan_data)
+
+# Distribution of the loan status
+table(loan_data$loan_status)
+CrossTable(loan_data$loan_status)
+```
+That means about 89% of the loan applicants are non-default. This is a typical imbalanced classification distribution.
+
+### Work with missing data
+There are generally three strategies to deal with missing data.
+
+* Delete row/column
+* Replace with the median (for contiuous variable) or the mode (for categorical variable)
+* Keep, coarse classification, put variable in "bins"
+```{r}
+# Make the necessary replacements in the coarse classification example below 
+loan_data$ir_cat <- rep(NA, length(loan_data$int_rate))
+
+loan_data$ir_cat[which(loan_data$int_rate <= 8)] <- "0-8"
+loan_data$ir_cat[which(loan_data$int_rate > 8 & loan_data$int_rate <= 11)] <- "8-11"
+loan_data$ir_cat[which(loan_data$int_rate > 11 & loan_data$int_rate <= 13.5)] <- "11-13.5"
+loan_data$ir_cat[which(loan_data$int_rate > 13.5)] <- "13.5+"
+loan_data$ir_cat[which(is.na(loan_data$int_rate))] <- "Missing"
+
+loan_data$ir_cat <- as.factor(loan_data$ir_cat)
+
+# Look at your new variable using plot()
+plot(loan_data$ir_cat)
+```
+
+### Split the data into training set and test set
+```{r}
+set.seed(567)
+ix_train <- sample(1:nrow(loan_data), size = 2/3*nrow(loan_data))
+train_set <- loan_data[ix_train, ]
+test_set <- loan_data[-ix_train, ]
+```
+
+
+## Logistic Regression
+
+### Logistic Regression model with one predictor ir_cat
+```{r}
+lr_model_ir_cat <- glm(loan_status ~ ir_cat, data=train_set)
+summary(lr_model_ir_cat)
+```
+When you include a categorical variable in a logistic regression model in R, you will obtain a parameter estimate for all but one of its categories. This category for which no parameter estimate is given is called the *reference category* which is interest rate lower than 8% in this case. The parameter for each of the other categories represents the odds ratio in favor of a loan default between the category of interest and the reference category.
+
+How to interpret the parameter estimate for the interest rates that are between 8% and 11%? Compared to the reference category with interest rates between 0% and 8%, the odds in favor of default change by a multiple of
+$e^{\beta_{j}}$
+```{r}
+exp(lr_model_ir_cat$coefficients[[4]])
+```
+
+### Logistic regression with multiple variables 
+```{r}
+lr_model_multi <- glm(loan_status ~ age+ir_cat+grade+loan_amnt+annual_inc, family="binomial", data=train_set)
+summary(lr_model_multi)
+```
+Also important is the statistical significance of a certain parameter estimate. The significance of a parameter is often refered to as a **p-value**, however in a model output you will see it denoted as `Pr(>|t|)`. In glm, mild significance is denoted by a "." to very strong significance denoted by "***". When a parameter is not significant, this means you cannot assure that this parameter is significantly different from 0. Statistical significance is important. In general, it only makes sense to interpret the effect on default for significant parameters.
+
+## Decision Tree
+### Gini-measure
+Gini-measure is used to create the perfect split for a tree. 
+`Gini of a certain node = 2 * proportion of defaults in this node * proportion of non-defaults in this node`.
+`Gain = gini_root - (prop(cases left leaf) * gini_left) - (prop(cases right leaf * gini_right))`
+
+### Work with unbalanced dataset
+The loan_status distribution is unbalanced due to most of them are non-default.
+```{r}
+CrossTable(loan_data$loan_status)
+```
+#### Change the prior probabilities
+We can change the prior probabilities to obtain a decision tree. This is an indirect way of adjusting the importance of misclassifications for each class. You can specify another argument inside rpart() to include prior probabities. 
+```{r}
+# Change the code below such that a tree is constructed with adjusted prior probabilities.
+tree_prior <- rpart(loan_status ~ ., method = "class",
+                    data = train_set, 
+                    parms=list(prior=c(0.7, 0.3)),
+                    control=rpart.control(cp=0.001)) 
+
+# Plot the decision tree
+plot(tree_prior, uniform=TRUE)
+
+# Add labels to the decision tree
+text(tree_prior)
+
+plotcp(tree_prior)
+
+# Use printcp() to identify for which complexity parameter the cross-validated error rate is minimized.
+printcp(tree_prior)
+
+# Create an index for of the row with the minimum xerror
+index <- which.min(tree_prior$cptable[ , "xerror"])
+
+# Create tree_min
+tree_min <- tree_prior$cptable[index, "CP"]
+
+#  Prune the tree using tree_min
+ptree_prior <- prune(tree_prior, cp = tree_min)
+
+# Use prp() to plot the pruned tree
+prp(ptree_prior)
+```
+#### Include a loss matrix
+We can include a loss matrix, changing the relative importance of misclassifying a default as non-default versus a non-default as a default. We want to stress that misclassifying a default as a non-default should be penalized more heavily. Including a loss matrix can again be done in the argument parms in the loss matrix.
+
+> parms = list(loss = matrix(c(0, cost_def_as_nondef, cost_nondef_as_def, 0), ncol=2))
+
+Doing this, you are constructing a 2x2-matrix with zeroes on the diagonal and changed loss penalties off-diagonal. The default loss matrix is all ones off-diagonal.
+```{r}
+# Change the code below such that a decision tree is constructed using a loss matrix penalizing 10 times more heavily for misclassified defaults.
+set.seed(345)
+tree_loss_matrix <- rpart(loan_status ~ ., method = "class",
+                          data =  train_set, 
+                          parms=list(loss=matrix(c(0, 10, 1, 0), ncol=2)),
+                          control=rpart.control(cp=0.001))
+
+
+# Plot the decision tree
+plot(tree_loss_matrix, uniform=TRUE)
+
+# Add labels to the decision tree
+text(tree_loss_matrix)
+
+# Plot the cross-validated error rate as a function of the complexity parameter
+plotcp(tree_loss_matrix)
+
+ix_cp <- which.min(tree_loss_matrix$cptable[, "xerror"])
+# Prune the tree using cp = 0.0012788
+ptree_loss_matrix <- prune(tree_loss_matrix, cp=tree_loss_matrix$cptable[ix_cp, "CP"])
+
+# Use prp() and argument extra = 1 to plot the pruned tree
+prp(ptree_loss_matrix, extra=1)
+```
+#### Assign more weights on loan status with default
+We can construct a weight vector for the training set to assign higher weights to the application with default status.
+```{r}
+train_sample_weights <- ifelse(train_set$loan_status == 1, 3, 1)
+
+tree_weights <- rpart(loan_status ~ ., method="class", data=train_set,
+                      weights=train_sample_weights,
+                      control=rpart.control(cp=0.001, 
+                                            minsplit = 5, minbucket = 2))
+
+plot(tree_weights, uniform=TRUE)
+text(tree_weights)
+```
+## The strategy curve
+### Compute a bad rate given a fixed acceptance rate
+We can compute the bad rate (or, the percentage of defaults) in the loan portfolio of a bank when given:
+
+* a specific model
+* the acceptance rate
+```{r}
+# Make predictions for the probability of default using the pruned tree and the test set.
+prob_default_prior <- predict(ptree_prior, newdata = test_set)[ ,2]
+
+# Obtain the cutoff for acceptance rate 80%
+cutoff_prior <- quantile(prob_default_prior, 0.8)
+
+# Obtain the binary predictions.
+bin_pred_prior_80 <- ifelse(prob_default_prior > cutoff_prior, 1, 0)
+
+# Obtain the actual default status for the accepted loans
+accepted_status_prior_80 <- test_set$loan_status[bin_pred_prior_80 == 0]
+
+# Obtain the bad rate for the accepted loans
+sum(accepted_status_prior_80) / length(accepted_status_prior_80)
+
+```
+### Construct the strategy table and strategy curve
+```{r}
+strategy_bank <- function(prob_of_def){
+  cutoff=rep(NA, 21)
+  bad_rate=rep(NA, 21)
+  accept_rate=seq(1,0,by=-0.05)
+  for (i in 1:21){
+    cutoff[i]=quantile(prob_of_def,accept_rate[i])
+    pred_i=ifelse(prob_of_def> cutoff[i], 1, 0)
+    pred_as_good=test_set$loan_status[pred_i==0]
+    bad_rate[i]=sum(pred_as_good)/length(pred_as_good)}
+  table=cbind(accept_rate,cutoff=round(cutoff,4),bad_rate=round(bad_rate,4))
+  return(list(table=table,bad_rate=bad_rate, accept_rate=accept_rate,   cutoff=cutoff))
+}
+```
+
+### Strategy curve for decision tree with prior probabilities
+```{r}
+strategy_prior <- strategy_bank(prob_default_prior)
+strategy_prior$table
+
+plot(strategy_prior$accept_rate, strategy_prior$bad_rate, type="l", 
+     xlab="Acceptance rate", ylab="Bad rate", main="tree with prior")
+```
+
+### Strategy curve for logistic regression
+```{r}
+prob_lr_multi <- predict(lr_model_multi, newdata=test_set, type="response")
+
+strategy_lr_multi <- strategy_bank(prob_lr_multi)
+strategy_lr_multi$table
+
+plot(strategy_lr_multi$accept_rate, strategy_lr_multi$bad_rate, type="l", 
+     xlab="Acceptance rate", ylab="Bad rate", main="logistic regression")
+```
